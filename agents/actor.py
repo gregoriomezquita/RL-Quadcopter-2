@@ -1,9 +1,6 @@
 '''
 '''
-from keras import layers
-from keras import models
-from keras import optimizers
-#from keras import layers, models, optimizers
+from keras import layers, models, optimizers, initializers, regularizers
 from keras import backend as K
 
 class Actor:
@@ -26,6 +23,10 @@ class Actor:
         self.action_range = self.action_high - self.action_low
 
         # Initialize any other variables here
+        self.learning_rate= 1e-4
+        self.init= 'glorot_normal'#'glorot_normal'#'he_normal'  'RandomUniform'
+        #self.init= initializers.RandomUniform(minval=-3e-3, maxval=3e-3, seed=None)
+        self.reg= regularizers.l2(0.01)
 
         self.build_model()
 
@@ -35,19 +36,19 @@ class Actor:
         states = layers.Input(shape=(self.state_size,), name='states')
 
         # Add hidden layers
-        net = layers.Dense(units=32, activation='relu')(states)
-        net = layers.Dense(units=64, activation='relu')(net)
-        net = layers.Dense(units=32, activation='relu')(net)
-
+        
+        net = layers.Dense(units=64, activation='relu', kernel_regularizer=self.reg)(states)
+        net = layers.Dense(units=64, activation='relu', kernel_regularizer=self.reg)(net)
+        #net = layers.Dense(units=32, activation='relu', kernel_regularizer=self.reg)(net)
+				
         # Try different layer sizes, activations, add batch normalization, regularizers, etc.
-
+        
         # Add final output layer with sigmoid activation
-        raw_actions = layers.Dense(units=self.action_size, activation='sigmoid',
-            name='raw_actions')(net)
+        raw_actions = layers.Dense(units=self.action_size, activation='sigmoid', 
+        					kernel_initializer= self.init, kernel_regularizer=self.reg, name='raw_actions')(net)
 
         # Scale [0, 1] output for each action dimension to proper range
-        actions = layers.Lambda(lambda x: (x * self.action_range) + self.action_low,
-            name='actions')(raw_actions)
+        actions = layers.Lambda(lambda x: (x * self.action_range) + self.action_low, name='actions')(raw_actions)
 
         # Create Keras model
         self.model = models.Model(inputs=states, outputs=actions)
@@ -57,9 +58,11 @@ class Actor:
         loss = K.mean(-action_gradients * actions)
 
         # Incorporate any additional losses here (e.g. from regularizers)
+        for l2_regularizer_loss in self.model.losses:
+            loss += l2_regularizer_loss
 
         # Define optimizer and training function
-        optimizer = optimizers.Adam()
+        optimizer = optimizers.Adam(lr= self.learning_rate)
         updates_op = optimizer.get_updates(params=self.model.trainable_weights, loss=loss)
         self.train_fn = K.function(
             inputs=[self.model.input, action_gradients, K.learning_phase()],
